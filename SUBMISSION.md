@@ -1,3 +1,56 @@
+<!-- generated-header v2 -->
+# SUBMISSION — heat-vision
+
+Paste-ready. Five fields, in the order the HackaLaunch form asks for them.
+Refreshed 2026-09-24T05:06:10+07:00.
+
+---
+
+## TITLE  (71/80 chars)
+
+```
+HeatVision — bispectral detection that pulls lithium cells off the belt
+```
+
+## DESCRIPTION  (1476 chars)
+
+```
+HeatVision is a complete sorting station for recycling lines: find the lithium cell in the waste stream and physically remove it before the crusher reaches it.
+
+What it does: colour plus long-wave infrared frames go into a fused detector, objects are tracked down the belt, a safety policy decides what is dangerous, and a 4-DOF arm removes what it condemns — then checks whether the pick succeeded.
+
+How it works: one camera is not enough in either direction. Thermal alone false-alarms on brake discs, motor fragments and anything sun-warmed; the line stops all day and somebody switches the system off. Colour alone misses the discharged cell sitting at ambient that looks like a black plastic shard. HeatVision fuses both at the first convolution but keeps them separately accountable: vision decides what an object is, thermal how dangerous it is right now, and a rule set combines them. Every decision is logged with the rule id and the numbers behind it. Both failure modes are named adversarial subsets in the dataset and reported as first-class metrics, including hazards missed on a held-out test set.
+
+Real vs mocked: simulation-only, which the brief allows — the detector, policy, tracker, metrics and arm control loop are real code and real evaluation; the belt, sensors and arm are simulated. No physical hardware is behind this entry.
+
+How to run: `pip install -r requirements.txt && pytest -q`, then the pipeline command in RUN.md. Laptop CPU, no GPU, no keys.
+```
+
+## REPO URL
+
+```
+https://github.com/valeemlbb-cell/hackalaunch-heat-vision
+```
+
+## VIDEO URL
+
+```
+VIDEO_URL_PENDING
+```
+
+> The main session posts `demo_x.mp4` from this folder to X and replaces the
+> line above with the public post URL. The form needs a **link**; a file is useless.
+
+## SOLANA PAYOUT ADDRESS
+
+```
+7W31iaCmjerN1jkpEnmZevn74SZxv83yEQvLsnc4PS7Q
+```
+
+---
+
+## Appendix — earlier submission notes (kept verbatim)
+
 # SUBMISSION — Heat Vision (hackalaunch.com/h/heat-vision)
 
 Operator sheet. The paste-ready prose for the form's description box lives in
