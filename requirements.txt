@@ -1,0 +1,11 @@
+# Core (everything except the demo recorder).
+numpy>=1.26
+torch>=2.2
+opencv-python>=4.9
+
+# Tests.
+pytest>=8.0
+pytest-cov>=5.0
+
+# Optional: narration for scripts/record_demo.py. ffmpeg must be on PATH.
+edge-tts>=6.1
