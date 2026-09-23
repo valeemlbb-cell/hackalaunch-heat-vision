@@ -304,53 +304,52 @@ class Station:
         )
 
     # --------------------------------------------------------------- step
-    def step(self) -> FrameRecord:
-        events: list[str] = []
-
-        # 1. world
+    def _advance_world(self) -> None:
         self.scene.advance(self.dt, speed_mps=self.belt_speed)
         if self.time_s >= self._next_spawn and self.belt_speed > 0.0:
             self.scene.spawn(self.rng, hazard_rate=self.hazard_rate)
             self._next_spawn = self.time_s + self.spawn_interval_s
 
-        # 2. e-stop recovery. A venting cell is never handled by the robot: a
-        #    human in PPE lifts it into a quench drum, acknowledges the stop and
-        #    restarts the line. That manual extraction is counted separately
-        #    from the robot's own removals so the two never get conflated.
-        if self.estop and self.time_s >= self._estop_until:
-            item = self._item_by_uid(self._estop_uid)
-            if item is not None and not item.removed:
-                item.removed = True
-                if item.is_hazard:
-                    self.stats.operator_removals += 1
-                events.append("operator extracted the venting item into a quench drum")
-            self.estop = False
-            self._estop_uid = None
-            self.belt_speed = self.cfg.belt.speed_mps
-            events.append("E-STOP cleared by operator, belt restarted")
+    def _recover_estop(self, events: list[str]) -> None:
+        """A venting cell is never handled by the robot.
 
-        # 3. book-keeping on hazards that entered / left the view
+        A human in PPE lifts it into a quench drum, acknowledges the stop and
+        restarts the line. That manual extraction is counted separately from
+        the robot's own removals so the two never get conflated.
+        """
+        if not self.estop or self.time_s < self._estop_until:
+            return
+        item = self._item_by_uid(self._estop_uid)
+        if item is not None and not item.removed:
+            item.removed = True
+            if item.is_hazard:
+                self.stats.operator_removals += 1
+            events.append("operator extracted the venting item into a quench drum")
+        self.estop = False
+        self._estop_uid = None
+        self.belt_speed = self.cfg.belt.speed_mps
+        events.append("E-STOP cleared by operator, belt restarted")
+
+    def _account_hazards(self) -> None:
+        """Count each hazard once when it enters the view and once if it is lost."""
         for item in self.scene.items:
-            if item.is_hazard and item.uid not in self._seen_hazards and item.x_m >= 0.0:
+            if not item.is_hazard:
+                continue
+            if item.uid not in self._seen_hazards and item.x_m >= 0.0:
                 self._seen_hazards.add(item.uid)
                 self.stats.hazards_seen += 1
-            if item.is_hazard and item.crushed and not item.removed and not getattr(item, "_counted", False):
+            if item.crushed and not item.removed and not getattr(item, "_counted", False):
                 item._counted = True  # type: ignore[attr-defined]
                 self.stats.hazards_crushed += 1
 
-        # 4. sense
-        rgb, thermal = render_frame(self.rng, self.scene, self.cfg.thermal)
+    def _perceive(self, rgb: np.ndarray, thermal: np.ndarray) -> tuple[list[Detection], list[Track], list[Decision], float]:
         detections, readings, centers, base = self._detect(rgb, thermal)
-
-        # 5. track + decide
         tracks = self.tracker.update(detections, readings, centers, self.time_s, self.dt)
         self._attach_ground_truth(tracks)
-        reachable = {
-            t.track_id: self.arm.can_reach(*t.center_m) or self.arm.busy for t in tracks
-        }
-        decisions = decide_all(tracks, self.cfg.policy, reachable=reachable)
+        reachable = {t.track_id: self.arm.can_reach(*t.center_m) or self.arm.busy for t in tracks}
+        return detections, tracks, decide_all(tracks, self.cfg.policy, reachable=reachable), base
 
-        # 6. act
+    def _actuate(self, decisions: list[Decision], events: list[str]) -> None:
         self._dispatch(decisions, events)
         result = self.arm.step(self.dt)
         if result is not None:
@@ -358,6 +357,17 @@ class Station:
         if self.arm.state is ArmState.IDLE and not self.estop and self.belt_speed == 0.0:
             self.belt_speed = self.cfg.belt.speed_mps
             events.append("belt restarted after quench pick")
+
+    def step(self) -> FrameRecord:
+        """One control cycle: world, recovery, sensing, decision, action."""
+        events: list[str] = []
+        self._advance_world()
+        self._recover_estop(events)
+        self._account_hazards()
+
+        rgb, thermal = render_frame(self.rng, self.scene, self.cfg.thermal)
+        detections, tracks, decisions, base = self._perceive(rgb, thermal)
+        self._actuate(decisions, events)
 
         record = FrameRecord(
             index=self.index,

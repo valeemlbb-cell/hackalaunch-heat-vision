@@ -214,84 +214,89 @@ class Arm:
                 return None
         return self._on_segment_done()
 
+    def _begin_dwell(self, state: ArmState) -> None:
+        """Enter a timed state (gripper open/close) with no motion."""
+        self.state = state
+        self._traj = None
+        self._t = 0.0
+
+    def _fail(self, job: PickJob, reason: str, error: float | None = None) -> PickResult:
+        result = PickResult(job.track_id, False, reason, self._job_t, grasp_error_m=error, gt_uid=job.gt_uid)
+        self._finish()
+        return result
+
     def _on_segment_done(self) -> PickResult | None:
-        job = self.job
+        """Dispatch to the handler for the state that just finished."""
         if self.state is ArmState.RETURN:
             self.state = ArmState.IDLE
             self._traj = None
             return None
+        job = self.job
         if job is None:
             self.state = ArmState.IDLE
             return None
-
-        if self.state is ArmState.TO_INTERCEPT:
-            self.state = ArmState.DESCEND
-            self._goto(self.joints.arm_joints, self.cfg.z_pick_m)
+        handler = self._HANDLERS.get(self.state)
+        if handler is None:
+            self.state = ArmState.IDLE
             return None
+        return handler(self, job)
 
-        if self.state is ArmState.DESCEND:
-            self.state = ArmState.GRIP
-            self._traj = None
-            self._t = 0.0
-            return None
-
-        if self.state is ArmState.GRIP:
-            # dwell for the jaw-close time, then verify we actually have it
-            if self._t < self.cfg.grip_time_s:
-                return None
-            actual = self.locate(job) if self.locate else job.target_xy
-            if actual is None:
-                result = PickResult(job.track_id, False, "target_gone", self._job_t, gt_uid=job.gt_uid)
-                self._finish()
-                return result
-            tx, ty = self.tool_xy
-            error = math.hypot(actual[0] - tx, actual[1] - ty)
-            self._last_error = error
-            if error > self.grasp_tolerance_m:
-                result = PickResult(
-                    job.track_id, False, "grasp_miss", self._job_t, grasp_error_m=error, gt_uid=job.gt_uid
-                )
-                self._finish()
-                return result
-            self.holding = True
-            if self.on_grasp:
-                self.on_grasp(job)
-            self.state = ArmState.LIFT
-            self._goto(self.joints.arm_joints, self.cfg.z_clear_m)
-            return None
-
-        if self.state is ArmState.LIFT:
-            try:
-                q = inverse(self.cfg, *job.bin_xy, prefer=self.joints.arm_joints)
-            except UnreachableError:
-                result = PickResult(
-                    job.track_id, False, "bin_unreachable", self._job_t, gt_uid=job.gt_uid
-                )
-                self._finish()
-                return result
-            self.state = ArmState.TO_BIN
-            self._goto(q, self.cfg.z_clear_m)
-            return None
-
-        if self.state is ArmState.TO_BIN:
-            self.state = ArmState.RELEASE
-            self._traj = None
-            self._t = 0.0
-            return None
-
-        if self.state is ArmState.RELEASE:
-            if self._t < self.cfg.release_time_s:
-                return None
-            result = PickResult(
-                job.track_id,
-                True,
-                "placed",
-                self._job_t,
-                grasp_error_m=self._last_error,
-                gt_uid=job.gt_uid,
-            )
-            self._finish()
-            return result
-
-        self.state = ArmState.IDLE
+    # -- per-state handlers ------------------------------------------------
+    def _after_intercept(self, _job: PickJob) -> PickResult | None:
+        self.state = ArmState.DESCEND
+        self._goto(self.joints.arm_joints, self.cfg.z_pick_m)
         return None
+
+    def _after_descend(self, _job: PickJob) -> PickResult | None:
+        self._begin_dwell(ArmState.GRIP)
+        return None
+
+    def _after_grip(self, job: PickJob) -> PickResult | None:
+        """Jaws have had time to close: check whether we actually have it."""
+        if self._t < self.cfg.grip_time_s:
+            return None
+        actual = self.locate(job) if self.locate else job.target_xy
+        if actual is None:
+            return self._fail(job, "target_gone")
+        tx, ty = self.tool_xy
+        error = math.hypot(actual[0] - tx, actual[1] - ty)
+        self._last_error = error
+        if error > self.grasp_tolerance_m:
+            return self._fail(job, "grasp_miss", error)
+        self.holding = True
+        if self.on_grasp:
+            self.on_grasp(job)
+        self.state = ArmState.LIFT
+        self._goto(self.joints.arm_joints, self.cfg.z_clear_m)
+        return None
+
+    def _after_lift(self, job: PickJob) -> PickResult | None:
+        try:
+            q = inverse(self.cfg, *job.bin_xy, prefer=self.joints.arm_joints)
+        except UnreachableError:
+            return self._fail(job, "bin_unreachable")
+        self.state = ArmState.TO_BIN
+        self._goto(q, self.cfg.z_clear_m)
+        return None
+
+    def _after_to_bin(self, _job: PickJob) -> PickResult | None:
+        self._begin_dwell(ArmState.RELEASE)
+        return None
+
+    def _after_release(self, job: PickJob) -> PickResult | None:
+        if self._t < self.cfg.release_time_s:
+            return None
+        result = PickResult(
+            job.track_id, True, "placed", self._job_t, grasp_error_m=self._last_error, gt_uid=job.gt_uid
+        )
+        self._finish()
+        return result
+
+    _HANDLERS = {
+        ArmState.TO_INTERCEPT: _after_intercept,
+        ArmState.DESCEND: _after_descend,
+        ArmState.GRIP: _after_grip,
+        ArmState.LIFT: _after_lift,
+        ArmState.TO_BIN: _after_to_bin,
+        ArmState.RELEASE: _after_release,
+    }

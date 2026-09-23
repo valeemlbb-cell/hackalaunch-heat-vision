@@ -56,11 +56,13 @@ real removal from a coincidence), and the `locate` callback that stands in for
 the physical world. Neither is visible to the detector, the tracker or the
 policy.
 
-## Pre-existing work
+## Pre-hackathon work
 
-**None.** Every file in this repository was written for this hackathon, from an
-empty directory. No code, assets or models were carried in from earlier
-projects by the same team.
+**None.** Every file in this repository was written during the hackathon
+window, from an empty directory. No pre-hackathon code, assets, datasets or
+trained weights were carried in from earlier projects by the same team, and
+nothing here is a repackaging of something built before the hackathon. The git
+history starts at the first commit of this entry, so the claim is checkable.
 
 Third-party dependencies are the usual ones — NumPy, PyTorch, OpenCV, pytest,
 and optionally `edge-tts` and ffmpeg for the demo audio — used as libraries,
@@ -93,5 +95,11 @@ and contains no API keys of any kind.
 
 No fonts, images, icons or audio assets are bundled. All rendering uses
 OpenCV's built-in Hershey vector fonts, which ship with OpenCV under the
-Apache-2.0 licence. The narration audio, if generated, is produced locally at
-build time by `edge-tts` and is not redistributed in this repository.
+Apache-2.0 licence.
+
+The narration audio is synthesised at build time and is not redistributed in
+this repository. The default backend is the **local Windows speech synthesiser**
+(`System.Speech`), which runs entirely offline with no account and no key;
+`edge-tts` is only used as a fallback when the local one is unavailable. The
+build machine for the submitted video had no network access, so the submitted
+narration is the local voice.

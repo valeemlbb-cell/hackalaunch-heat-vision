@@ -128,6 +128,128 @@ def grip_force_for(track: Track, tier: HazardTier, cfg: PolicyConfig) -> float:
     return cfg.swollen_force_limit_n if gentle else cfg.grip_force_limit_n
 
 
+@dataclass(frozen=True)
+class _Verdict:
+    """What a rule decided, before it is dressed up as a :class:`Decision`."""
+
+    action: Action
+    reason: str
+    force: float | None = None  # None means "use the per-item grip limit"
+
+
+@dataclass(frozen=True)
+class _Context:
+    track: Track
+    tier: HazardTier
+    cfg: PolicyConfig
+    reachable: bool
+    thermal_only_alert_k: float
+
+    @property
+    def cls_name(self) -> str:
+        return CLASS_NAMES[self.track.cls_id]
+
+
+def _rule_r0_hot_but_not_lithium(ctx: _Context) -> _Verdict | None:
+    """Hot, but nothing says lithium. Tell a human; keep the line running."""
+    if ctx.tier is not HazardTier.NONE or ctx.track.peak_dt < ctx.thermal_only_alert_k:
+        return None
+    return _Verdict(
+        Action.ALERT_OPERATOR,
+        f"{ctx.track.peak_dt:.0f} K hot object with vision score "
+        f"{ctx.track.score:.2f} < {ctx.cfg.vision_review:.2f}: not lithium, no line stop",
+        force=0.0,
+    )
+
+
+def _rule_r1_no_evidence(ctx: _Context) -> _Verdict | None:
+    if ctx.tier is not HazardTier.NONE:
+        return None
+    return _Verdict(Action.IGNORE, "no lithium evidence", force=0.0)
+
+
+def _rule_r2_runaway(ctx: _Context) -> _Verdict | None:
+    """Venting or fast-rising: do not touch it, stop the belt."""
+    if ctx.tier is not HazardTier.RUNAWAY:
+        return None
+    return _Verdict(
+        Action.EMERGENCY_STOP,
+        f"thermal runaway: peak {ctx.track.peak_dt:.0f} K, rise "
+        f"{ctx.track.rise_rate_k_s:+.1f} K/s -> belt halt, suppression, "
+        f"operator callout (no grip)",
+        force=0.0,
+    )
+
+
+def _rule_r3_not_enough_frames(ctx: _Context) -> _Verdict | None:
+    """One frame is not evidence."""
+    if ctx.track.frames_seen >= ctx.cfg.min_track_frames:
+        return None
+    return _Verdict(
+        Action.OBSERVE,
+        f"seen {ctx.track.frames_seen}/{ctx.cfg.min_track_frames} frames, holding",
+        force=0.0,
+    )
+
+
+def _rule_r4_past_the_window(ctx: _Context) -> _Verdict | None:
+    """Past the pick window, or out of the workspace: flag, do not chase."""
+    if ctx.track.center_m[0] <= ctx.cfg.max_reach_x_m and ctx.reachable:
+        return None
+    return _Verdict(
+        Action.TOO_LATE,
+        f"x={ctx.track.center_m[0]:.2f} m past the {ctx.cfg.max_reach_x_m:.2f} m "
+        f"pick window -> flag downstream diverter",
+        force=0.0,
+    )
+
+
+def _rule_r5_thermal_event(ctx: _Context) -> _Verdict | None:
+    """Hot but stable: gentle pick straight into the quench bin."""
+    if ctx.tier is not HazardTier.THERMAL_EVENT:
+        return None
+    return _Verdict(
+        Action.EXTRACT_QUENCH,
+        f"{ctx.cls_name} at {ctx.track.peak_dt:.0f} K above belt -> gentle pick to sand bin",
+    )
+
+
+def _rule_r6_confirmed(ctx: _Context) -> _Verdict | None:
+    """Confirmed lithium item, normal extraction."""
+    if ctx.tier is not HazardTier.CONFIRMED:
+        return None
+    detail = (
+        f"vision {ctx.track.score:.2f} corroborated by {ctx.track.peak_dt:.1f} K self-heating"
+        if ctx.track.score < ctx.cfg.vision_accept
+        else f"vision {ctx.track.score:.2f}"
+    )
+    return _Verdict(Action.EXTRACT_QUARANTINE, f"{ctx.cls_name} confirmed ({detail})")
+
+
+def _rule_r7_weak_hit(ctx: _Context) -> _Verdict | None:
+    """Weak hit with no thermal support: keep watching, do not act."""
+    return _Verdict(
+        Action.OBSERVE,
+        f"weak hit {ctx.track.score:.2f} with only {ctx.track.peak_dt:.1f} K rise, waiting",
+        force=0.0,
+    )
+
+
+#: The rule set, in priority order. First match wins, and the id that matched
+#: is recorded on the decision, so an auditor can read the table and the log
+#: side by side. ``docs/SAFETY.md`` documents the same table in prose.
+RULES: tuple[tuple[str, object], ...] = (
+    ("R0", _rule_r0_hot_but_not_lithium),
+    ("R1", _rule_r1_no_evidence),
+    ("R2", _rule_r2_runaway),
+    ("R3", _rule_r3_not_enough_frames),
+    ("R4", _rule_r4_past_the_window),
+    ("R5", _rule_r5_thermal_event),
+    ("R6", _rule_r6_confirmed),
+    ("R7", _rule_r7_weak_hit),
+)
+
+
 def decide(
     track: Track,
     cfg: PolicyConfig,
@@ -136,91 +258,28 @@ def decide(
     thermal_only_alert_k: float = 25.0,
 ) -> Decision:
     """Map one tracked object onto one action, with the rule that fired."""
-    cls_name = CLASS_NAMES[track.cls_id]
     tier = classify(track, cfg)
-    rate = track.rise_rate_k_s
-
-    def build(action: Action, rule: str, reason: str, force: float | None = None) -> Decision:
+    ctx = _Context(track, tier, cfg, reachable, thermal_only_alert_k)
+    for rule_id, rule in RULES:
+        verdict = rule(ctx)  # type: ignore[operator]
+        if verdict is None:
+            continue
         return Decision(
-            action=action,
+            action=verdict.action,
             tier=tier,
-            rule=rule,
-            reason=reason,
-            grip_force_n=grip_force_for(track, tier, cfg) if force is None else force,
+            rule=rule_id,
+            reason=verdict.reason,
+            grip_force_n=(
+                grip_force_for(track, tier, cfg) if verdict.force is None else verdict.force
+            ),
             priority=_priority(track, tier, cfg),
             track_id=track.track_id,
-            cls_name=cls_name,
+            cls_name=ctx.cls_name,
             vision_score=track.score,
             peak_dt=track.peak_dt,
-            rise_rate_k_s=rate,
+            rise_rate_k_s=track.rise_rate_k_s,
         )
-
-    # R0 - hot, but nothing says lithium. Tell a human, keep the line running.
-    if tier is HazardTier.NONE:
-        if track.peak_dt >= thermal_only_alert_k:
-            return build(
-                Action.ALERT_OPERATOR,
-                "R0",
-                f"{track.peak_dt:.0f} K hot object with vision score "
-                f"{track.score:.2f} < {cfg.vision_review:.2f}: not lithium, no line stop",
-                force=0.0,
-            )
-        return build(Action.IGNORE, "R1", "no lithium evidence", force=0.0)
-
-    # R2 - venting or fast-rising: do not touch it, stop the belt.
-    if tier is HazardTier.RUNAWAY:
-        return build(
-            Action.EMERGENCY_STOP,
-            "R2",
-            f"thermal runaway: peak {track.peak_dt:.0f} K, rise {rate:+.1f} K/s "
-            f"-> belt halt, suppression, operator callout (no grip)",
-            force=0.0,
-        )
-
-    # R3 - one frame is not evidence.
-    if track.frames_seen < cfg.min_track_frames:
-        return build(
-            Action.OBSERVE,
-            "R3",
-            f"seen {track.frames_seen}/{cfg.min_track_frames} frames, holding",
-            force=0.0,
-        )
-
-    # R4 - past the pick window.
-    if track.center_m[0] > cfg.max_reach_x_m or not reachable:
-        return build(
-            Action.TOO_LATE,
-            "R4",
-            f"x={track.center_m[0]:.2f} m past the {cfg.max_reach_x_m:.2f} m pick window "
-            f"-> flag downstream diverter",
-            force=0.0,
-        )
-
-    # R5 - hot but stable: gentle pick straight into the quench bin.
-    if tier is HazardTier.THERMAL_EVENT:
-        return build(
-            Action.EXTRACT_QUENCH,
-            "R5",
-            f"{cls_name} at {track.peak_dt:.0f} K above belt -> gentle pick to sand bin",
-        )
-
-    # R6 - confirmed lithium item, normal extraction.
-    if tier is HazardTier.CONFIRMED:
-        corroborated = track.score < cfg.vision_accept
-        detail = (
-            f"vision {track.score:.2f} corroborated by {track.peak_dt:.1f} K self-heating"
-            if corroborated
-            else f"vision {track.score:.2f}"
-        )
-        return build(Action.EXTRACT_QUARANTINE, "R6", f"{cls_name} confirmed ({detail})")
-
-    # R7 - weak hit, no thermal support: keep watching, do not act.
-    return build(
-        Action.OBSERVE,
-        "R7",
-        f"weak hit {track.score:.2f} with only {track.peak_dt:.1f} K rise, waiting",
-        force=0.0,
-    )
+    raise AssertionError("the rule set must be exhaustive; R7 has no guard")
 
 
 def decide_all(tracks: list[Track], cfg: PolicyConfig, *, reachable: dict[int, bool] | None = None) -> list[Decision]:

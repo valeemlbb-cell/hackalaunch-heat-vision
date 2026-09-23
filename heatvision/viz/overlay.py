@@ -154,24 +154,16 @@ def attach_cell_items(record: FrameRecord, scene) -> None:  # noqa: ANN001 - sim
     record._cell_items = markers  # type: ignore[attr-defined]
 
 
-def compose_frame(
-    record: FrameRecord,
-    stats: dict,
-    cfg: CellConfig = DEFAULT,
-    *,
-    width: int = 1920,
-    height: int = 1080,
-    events: list[str] | None = None,
-) -> np.ndarray:
-    """The full 1080p operator console for one control cycle."""
-    canvas = np.full((height, width), 0, np.uint8)
-    canvas = np.dstack([canvas] * 3)
-    canvas[:] = BG
+PANEL_Y = 80
+PANEL_SIZE = 512
+LOG_Y = 620
 
+
+def _draw_header(canvas: np.ndarray, record: FrameRecord, width: int) -> None:
     cv2.putText(canvas, "HeatVision", (24, 44), FONT, 1.0, TEXT, 1, cv2.LINE_AA)
     cv2.putText(
         canvas,
-        "bispectral lithium-hazard detection and robotic removal  |  simulated sort line, devnet-safe",
+        "bispectral lithium-hazard detection and robotic removal  |  simulated sort line",
         (232, 44),
         FONT_S,
         0.52,
@@ -179,32 +171,35 @@ def compose_frame(
         1,
         cv2.LINE_AA,
     )
-    cv2.putText(canvas, f"t = {record.time_s:6.2f} s", (width - 220, 44), FONT_S, 0.6, TEXT, 1, cv2.LINE_AA)
+    cv2.putText(
+        canvas, f"t = {record.time_s:6.2f} s", (width - 220, 44), FONT_S, 0.6, TEXT, 1, cv2.LINE_AA
+    )
 
-    panel_y, panel_size = 80, 512
-    xs = [24, 560, 1096]
-    titles = [
+
+def _draw_views(canvas: np.ndarray, record: FrameRecord, cfg: CellConfig) -> None:
+    titles = (
         "RGB CAMERA",
         "LWIR THERMAL   black = belt baseline, white = +18 K",
         "CELL - TOP DOWN",
-    ]
-    views = [
-        annotate_view(record.rgb, record, panel_size),
+    )
+    views = (
+        annotate_view(record.rgb, record, PANEL_SIZE),
         annotate_view(
             thermal_to_color(record.thermal, 18.0, baseline=record.baseline_dt),
             record,
-            panel_size,
+            PANEL_SIZE,
         ),
-        draw_cell(record, cfg, panel_size),
-    ]
-    for x, title, view in zip(xs, titles, views):
-        _panel(canvas, x, panel_y, panel_size, panel_size, title)
-        canvas[panel_y : panel_y + panel_size, x : x + panel_size] = view
+        draw_cell(record, cfg, PANEL_SIZE),
+    )
+    for x, title, view in zip((24, 560, 1096), titles, views):
+        _panel(canvas, x, PANEL_Y, PANEL_SIZE, PANEL_SIZE, title)
+        canvas[PANEL_Y : PANEL_Y + PANEL_SIZE, x : x + PANEL_SIZE] = view
 
-    # ---- live counters column
+
+def _draw_counters(canvas: np.ndarray, record: FrameRecord, stats: dict, width: int) -> None:
     col_x = 1632
-    _panel(canvas, col_x, panel_y, width - col_x - 24, panel_size, "LIVE")
-    rows = [
+    _panel(canvas, col_x, PANEL_Y, width - col_x - 24, PANEL_SIZE, "LIVE")
+    rows = (
         ("hazards seen", stats.get("hazards_presented", 0)),
         ("removed", stats.get("hazards_removed", 0)),
         ("to crusher", stats.get("hazards_reached_crusher", 0)),
@@ -214,8 +209,8 @@ def compose_frame(
         ("alerts", stats.get("operator_alerts", 0)),
         ("detect ms", stats.get("mean_detect_ms") or 0),
         ("belt baseline", f"{record.baseline_dt:+.1f} K"),
-    ]
-    yy = panel_y + 46
+    )
+    yy = PANEL_Y + 46
     for name, value in rows:
         cv2.putText(canvas, name, (col_x + 16, yy), FONT_S, 0.46, MUTED, 1, cv2.LINE_AA)
         cv2.putText(canvas, str(value), (col_x + 180, yy), FONT, 0.52, TEXT, 1, cv2.LINE_AA)
@@ -226,28 +221,51 @@ def compose_frame(
         canvas, f"{rate * 100:.0f}%", (col_x + 16, yy + 78), FONT, 1.5, (120, 220, 90), 2, cv2.LINE_AA
     )
 
-    # ---- decision table
-    log_y = 620
-    log_h = height - log_y - 24
-    _panel(canvas, 24, log_y, 1080, log_h, "DECISIONS THIS CYCLE  (rule -> action)")
-    yy = log_y + 34
-    header = f"{'trk':>4}  {'class':<7} {'vis':>5} {'dT':>7} {'rate':>7}  {'rule':<5} {'action':<20} reason"
+
+def _draw_tables(
+    canvas: np.ndarray, record: FrameRecord, events: list[str], width: int, height: int
+) -> None:
+    log_h = height - LOG_Y - 24
+    _panel(canvas, 24, LOG_Y, 1080, log_h, "DECISIONS THIS CYCLE  (rule -> action)")
+    header = (
+        f"{'trk':>4}  {'class':<7} {'vis':>5} {'dT':>7} {'rate':>7}  "
+        f"{'rule':<5} {'action':<20} reason"
+    )
+    yy = LOG_Y + 34
     cv2.putText(canvas, header, (40, yy), FONT_S, 0.42, MUTED, 1, cv2.LINE_AA)
     yy += 26
     for decision in record.decisions[:9]:
-        color = ACTION_COLOR.get(decision.action, TEXT)
         line = (
             f"{decision.track_id:>4}  {decision.cls_name:<7} {decision.vision_score:>5.2f} "
             f"{decision.peak_dt:>+6.1f}K {decision.rise_rate_k_s:>+6.1f}  "
             f"{decision.rule:<5} {decision.action.value:<20} {decision.reason[:58]}"
         )
-        cv2.putText(canvas, line, (40, yy), FONT_S, 0.42, color, 1, cv2.LINE_AA)
+        cv2.putText(
+            canvas, line, (40, yy), FONT_S, 0.42, ACTION_COLOR.get(decision.action, TEXT), 1, cv2.LINE_AA
+        )
         yy += 24
 
-    _panel(canvas, 1128, log_y, width - 1128 - 24, log_h, "EVENT LOG")
-    yy = log_y + 34
-    for line in (events or [])[-11:]:
+    _panel(canvas, 1128, LOG_Y, width - 1128 - 24, log_h, "EVENT LOG")
+    yy = LOG_Y + 34
+    for line in events[-11:]:
         cv2.putText(canvas, line[:62], (1144, yy), FONT_S, 0.42, TEXT, 1, cv2.LINE_AA)
         yy += 24
 
+
+def compose_frame(
+    record: FrameRecord,
+    stats: dict,
+    cfg: CellConfig = DEFAULT,
+    *,
+    width: int = 1920,
+    height: int = 1080,
+    events: list[str] | None = None,
+) -> np.ndarray:
+    """The full 1080p operator console for one control cycle."""
+    canvas = np.empty((height, width, 3), np.uint8)
+    canvas[:] = BG
+    _draw_header(canvas, record, width)
+    _draw_views(canvas, record, cfg)
+    _draw_counters(canvas, record, stats, width)
+    _draw_tables(canvas, record, events or [], width, height)
     return canvas

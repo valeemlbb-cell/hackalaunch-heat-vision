@@ -207,9 +207,14 @@ are scripted, and the recording uses a higher hazard rate than a real stream so
 a 90-second clip is worth watching. Full detail in
 [`docs/AUTONOMY.md`](docs/AUTONOMY.md).
 
-**Pre-existing work: none.** Every file here was written for this hackathon
-from an empty directory. No code, assets or models were carried in from earlier
-projects.
+**Pre-hackathon work: none.** Every file in this repository was written during
+the hackathon window, from an empty directory. Nothing here was built before
+the hackathon: no prior work, no code, assets, datasets or trained weights were
+carried in from earlier projects, and the git history starts at the first
+commit of this entry. The only pre-existing components are third-party
+dependencies — NumPy, PyTorch, OpenCV, pytest, and optionally `edge-tts` and
+ffmpeg for the demo audio — used as libraries under their own licences. See
+[`docs/AUTONOMY.md`](docs/AUTONOMY.md#pre-hackathon-work).
 
 **AI agent usage.** Built with heavy use of an AI coding agent (Claude, via
 Claude Code) under human direction: the agent wrote most of the implementation,
@@ -221,7 +226,8 @@ decisions, and reviewed the output. No AI service is called at runtime.
 pointing this at real cameras and a real controller, and `.env` is git-ignored.
 
 **Licence.** MIT, see [`LICENSE`](LICENSE). No bundled fonts, images or audio;
-all text rendering uses OpenCV's built-in Hershey vector fonts.
+all text rendering uses OpenCV's built-in Hershey vector fonts, and the
+narration is synthesised offline at build time by the local system voice.
 
 ## Honest limitations
 

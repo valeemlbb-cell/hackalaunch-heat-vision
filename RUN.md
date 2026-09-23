@@ -87,7 +87,7 @@ is git-ignored:
 - [ ] repo public, README renders, tests green in a fresh clone
 - [ ] `results/METRICS.md` present and matching the README tables
 - [ ] `demo.mp4` uploaded, README link replaced, video under 3:00
-- [ ] `docs/AUTONOMY.md` linked from the README (autonomy + pre-existing work
+- [ ] `docs/AUTONOMY.md` linked from the README (autonomy + pre-hackathon work
       disclosure required by the rules)
 - [ ] no `.env`, no keys, no credentials anywhere in the history:
       `git log -p | grep -iE "api[_-]?key|secret|token|BEGIN .*PRIVATE"`
