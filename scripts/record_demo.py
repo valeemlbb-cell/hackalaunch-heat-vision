@@ -91,6 +91,43 @@ def probe_duration(path: Path) -> float | None:
         return None
 
 
+def record_run(
+    station: Station, writer_push, args: argparse.Namespace, size: tuple[int, int]
+) -> list[str]:
+    """Step the station, composing and pushing one console frame per cycle."""
+    width, height = size
+    repeat = max(1, int(round(VIDEO_FPS / args.fps)))
+    n_steps = int(round(args.seconds * args.fps))
+    events: list[str] = []
+    print(f"recording {n_steps} control cycles ({args.seconds:.0f} s of belt time) ...", flush=True)
+    for i in range(n_steps):
+        record = station.step()
+        events.extend(record.events)
+        attach_cell_items(record, station.scene)
+        frame = compose_frame(
+            record, station.stats.summary(), DEFAULT, width=width, height=height, events=events
+        )
+        writer_push(caption(frame, caption_at(INTRO_S + i / args.fps)), repeat)
+        if (i + 1) % 250 == 0:
+            print(f"  {i + 1}/{n_steps}", flush=True)
+    return events
+
+
+def load_results(path: Path, station: Station) -> dict:
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    print("no results/metrics.json yet; the results card will show this run only")
+    return {"detection": {}, "end_to_end": {"totals": station.stats.summary()}}
+
+
+def add_narration(silent: Path, work: Path, out: Path) -> None:
+    print("synthesising narration ...", flush=True)
+    clips = synthesise(work / "vo")
+    for warning in check_overlaps(clips):
+        print(f"  WARNING: {warning}")
+    mux(silent, clips, out)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Record the HeatVision demo video")
     ap.add_argument("--checkpoint", type=Path, default=ROOT / "runs" / "fused" / CHECKPOINT_NAME)
@@ -127,8 +164,6 @@ def main() -> int:
     writer = open_writer(silent, width, height, VIDEO_FPS)
     assert writer.stdin is not None
 
-    repeat = max(1, int(round(VIDEO_FPS / args.fps)))
-
     def push(frame: np.ndarray, count: int = 1) -> None:
         data = np.ascontiguousarray(frame).tobytes()
         for _ in range(count):
@@ -148,27 +183,8 @@ def main() -> int:
         INTRO_S * VIDEO_FPS,
     )
 
-    n_steps = int(round(args.seconds * args.fps))
-    event_log: list[str] = []
-    print(f"recording {n_steps} control cycles ({args.seconds:.0f} s of belt time) ...", flush=True)
-    for i in range(n_steps):
-        record = station.step()
-        event_log.extend(record.events)
-        attach_cell_items(record, station.scene)
-        video_t = INTRO_S + i / args.fps
-        frame = compose_frame(
-            record, station.stats.summary(), DEFAULT, width=width, height=height, events=event_log
-        )
-        push(caption(frame, caption_at(video_t)), repeat)
-        if (i + 1) % 250 == 0:
-            print(f"  {i + 1}/{n_steps}", flush=True)
-
-    if args.metrics.exists():
-        report = json.loads(args.metrics.read_text(encoding="utf-8"))
-    else:
-        print("no results/metrics.json yet; the results card will show this run only")
-        report = {"detection": {}, "end_to_end": {"totals": station.stats.summary()}}
-    push(metrics_card(report), OUTRO_S * VIDEO_FPS)
+    event_log = record_run(station, push, args, (width, height))
+    push(metrics_card(load_results(args.metrics, station)), OUTRO_S * VIDEO_FPS)
 
     writer.stdin.close()
     writer.wait()
@@ -182,11 +198,7 @@ def main() -> int:
     if args.no_audio:
         shutil.copyfile(silent, args.out)
     else:
-        print("synthesising narration ...", flush=True)
-        clips = synthesise(work / "vo")
-        for warning in check_overlaps(clips):
-            print(f"  WARNING: {warning}")
-        mux(silent, clips, args.out)
+        add_narration(silent, work, args.out)
 
     duration = probe_duration(args.out)
     size_mb = args.out.stat().st_size / 1e6

@@ -55,24 +55,18 @@ def evaluate_loss(model: HeatNetS, loader: DataLoader, tcfg: TrainConfig) -> dic
     return {k: v / max(1, n) for k, v in sums.items()}
 
 
-def train(
-    out_dir: Path,
+def build_loaders(
+    cfg: CellConfig,
+    tcfg: TrainConfig,
     *,
-    train_samples: list[Sample] | None = None,
-    val_samples: list[Sample] | None = None,
-    n_train: int = 2400,
-    n_val: int = 300,
-    cfg: CellConfig = DEFAULT,
-    tcfg: TrainConfig | None = None,
-    cache_dir: Path | None = None,
-    zero_channels: tuple[int, ...] = (),
-    verbose: bool = True,
-) -> dict:
-    tcfg = tcfg or TrainConfig()
-    set_seed(tcfg.seed)
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
+    train_samples: list[Sample] | None,
+    val_samples: list[Sample] | None,
+    n_train: int,
+    n_val: int,
+    cache_dir: Path | None,
+    zero_channels: tuple[int, ...],
+    verbose: bool,
+) -> tuple[DataLoader, DataLoader]:
     if train_samples is None:
         if verbose:
             print(f"rendering {n_train} training frames ...", flush=True)
@@ -86,10 +80,75 @@ def train(
         train_samples, cfg.detector, augment=True, seed=tcfg.seed, zero_channels=zero_channels
     )
     val_ds = HeatVisionDataset(val_samples, cfg.detector, augment=False, zero_channels=zero_channels)
-    train_loader = DataLoader(
-        train_ds, batch_size=tcfg.batch_size, shuffle=True, num_workers=tcfg.num_workers, drop_last=True
+    return (
+        DataLoader(
+            train_ds,
+            batch_size=tcfg.batch_size,
+            shuffle=True,
+            num_workers=tcfg.num_workers,
+            drop_last=True,
+        ),
+        DataLoader(val_ds, batch_size=tcfg.batch_size, num_workers=tcfg.num_workers),
     )
-    val_loader = DataLoader(val_ds, batch_size=tcfg.batch_size, num_workers=tcfg.num_workers)
+
+
+def run_epoch(
+    model: HeatNetS,
+    loader: DataLoader,
+    opt: torch.optim.Optimizer,
+    tcfg: TrainConfig,
+    *,
+    step: int,
+    total_steps: int,
+) -> tuple[dict[str, float], int, float]:
+    """One training pass. Returns the mean losses, the new step count and lr."""
+    running: dict[str, float] = {}
+    lr = tcfg.lr
+    for batch in loader:
+        lr = _lr_at(step, total_steps, tcfg.lr, tcfg.warmup_steps)
+        for group in opt.param_groups:
+            group["lr"] = lr
+        losses = compute_losses(model(batch["image"]), batch, tcfg)
+        opt.zero_grad(set_to_none=True)
+        losses["total"].backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+        opt.step()
+        for k, v in losses.items():
+            running[k] = running.get(k, 0.0) + float(v.detach())
+        step += 1
+    return {k: v / max(len(loader), 1) for k, v in running.items()}, step, lr
+
+
+def train(
+    out_dir: Path,
+    *,
+    train_samples: list[Sample] | None = None,
+    val_samples: list[Sample] | None = None,
+    n_train: int = 2400,
+    n_val: int = 300,
+    cfg: CellConfig = DEFAULT,
+    tcfg: TrainConfig | None = None,
+    cache_dir: Path | None = None,
+    zero_channels: tuple[int, ...] = (),
+    verbose: bool = True,
+) -> dict:
+    """Train HeatNet-S, keeping the best-validation checkpoint."""
+    tcfg = tcfg or TrainConfig()
+    set_seed(tcfg.seed)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    train_loader, val_loader = build_loaders(
+        cfg,
+        tcfg,
+        train_samples=train_samples,
+        val_samples=val_samples,
+        n_train=n_train,
+        n_val=n_val,
+        cache_dir=cache_dir,
+        zero_channels=zero_channels,
+        verbose=verbose,
+    )
 
     model = HeatNetS(cfg.detector)
     opt = torch.optim.AdamW(model.parameters(), lr=tcfg.lr, weight_decay=tcfg.weight_decay)
@@ -97,7 +156,8 @@ def train(
     if verbose:
         print(
             f"HeatNet-S: {model.num_parameters():,} params | "
-            f"{len(train_ds)} train / {len(val_ds)} val | {total_steps} steps",
+            f"{len(train_loader.dataset)} train / {len(val_loader.dataset)} val | "
+            f"{total_steps} steps",
             flush=True,
         )
 
@@ -107,20 +167,9 @@ def train(
     started = time.time()
     model.train()
     for epoch in range(tcfg.epochs):
-        running: dict[str, float] = {}
-        for batch in train_loader:
-            lr = _lr_at(step, total_steps, tcfg.lr, tcfg.warmup_steps)
-            for group in opt.param_groups:
-                group["lr"] = lr
-            losses = compute_losses(model(batch["image"]), batch, tcfg)
-            opt.zero_grad(set_to_none=True)
-            losses["total"].backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
-            opt.step()
-            for k, v in losses.items():
-                running[k] = running.get(k, 0.0) + float(v.detach())
-            step += 1
-        train_stats = {k: v / len(train_loader) for k, v in running.items()}
+        train_stats, step, lr = run_epoch(
+            model, train_loader, opt, tcfg, step=step, total_steps=total_steps
+        )
         val_stats = evaluate_loss(model, val_loader, tcfg)
         row = {
             "epoch": epoch + 1,
@@ -147,8 +196,8 @@ def train(
                     "val_loss": best,
                     "params": model.num_parameters(),
                     "train_config": asdict(tcfg),
-                    "n_train": len(train_ds),
-                    "n_val": len(val_ds),
+                    "n_train": len(train_loader.dataset),
+                    "n_val": len(val_loader.dataset),
                     "zero_channels": list(zero_channels),
                 },
             )

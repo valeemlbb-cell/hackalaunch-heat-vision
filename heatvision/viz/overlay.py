@@ -82,22 +82,35 @@ def draw_cell(record: FrameRecord, cfg: CellConfig, size: int = 512) -> np.ndarr
     def to_px(x: float, y: float) -> tuple[int, int]:
         return int((x - x_min) * s), int((y - y_min) * s)
 
+    _draw_belt(img, cfg, to_px)
+    _draw_bins(img, cfg, to_px)
+    for item in record_items(record):
+        px, py = to_px(item[0], item[1])
+        cv2.circle(img, (px, py), max(2, int(item[2] * s)), item[3], -1)
+    _draw_arm(img, record, cfg, to_px)
+    _draw_cell_banner(img, record, size)
+    return img
+
+
+def _draw_belt(img: np.ndarray, cfg: CellConfig, to_px) -> None:  # noqa: ANN001 - local projector
     belt = cfg.belt
-    # belt
     p0 = to_px(0.0, -0.5 * belt.width_m)
     p1 = to_px(belt.view_len_m, 0.5 * belt.width_m)
     cv2.rectangle(img, p0, p1, (44, 43, 42), -1)
     cv2.rectangle(img, p0, p1, (78, 76, 74), 1)
     for x in np.arange(0.0, belt.view_len_m, 0.06):
-        a, b = to_px(x, -0.5 * belt.width_m), to_px(x, 0.5 * belt.width_m)
-        cv2.line(img, a, b, (52, 51, 50), 1)
-    # crusher inlet
+        cv2.line(
+            img, to_px(x, -0.5 * belt.width_m), to_px(x, 0.5 * belt.width_m), (52, 51, 50), 1
+        )
     cx0 = to_px(belt.crusher_x_m, -0.5 * belt.width_m)
     cx1 = to_px(belt.crusher_x_m + 0.1, 0.5 * belt.width_m)
     cv2.rectangle(img, cx0, cx1, (24, 24, 96), -1)
-    cv2.putText(img, "CRUSHER", (cx0[0] - 66, cx0[1] - 8), FONT_S, 0.38, (90, 90, 220), 1, cv2.LINE_AA)
+    cv2.putText(
+        img, "CRUSHER", (cx0[0] - 66, cx0[1] - 8), FONT_S, 0.38, (90, 90, 220), 1, cv2.LINE_AA
+    )
 
-    # bins
+
+def _draw_bins(img: np.ndarray, cfg: CellConfig, to_px) -> None:  # noqa: ANN001
     for center, name, color in (
         (cfg.arm.quarantine_bin_m, "QUARANTINE", (120, 220, 90)),
         (cfg.arm.quench_bin_m, "QUENCH", (40, 170, 255)),
@@ -108,26 +121,24 @@ def draw_cell(record: FrameRecord, cfg: CellConfig, size: int = 512) -> np.ndarr
         cv2.rectangle(img, a, b, color, 1)
         cv2.putText(img, name, (a[0], a[1] - 6), FONT_S, 0.36, color, 1, cv2.LINE_AA)
 
-    # items on the belt
-    for item in record_items(record):
-        px, py = to_px(item[0], item[1])
-        cv2.circle(img, (px, py), max(2, int(item[2] * s)), item[3], -1)
 
-    # arm
-    base = cfg.arm.base_xy_m
+def _draw_arm(img: np.ndarray, record: FrameRecord, cfg: CellConfig, to_px) -> None:  # noqa: ANN001
     q1, q2 = record.arm_joints[0], record.arm_joints[1]
-    elbow = elbow_position(cfg.arm, q1)
-    tool = forward(cfg.arm, q1, q2)
-    bp, ep, tp = to_px(*base), to_px(*elbow), to_px(*tool)
+    bp = to_px(*cfg.arm.base_xy_m)
+    ep = to_px(*elbow_position(cfg.arm, q1))
+    tp = to_px(*forward(cfg.arm, q1, q2))
     cv2.line(img, bp, ep, (186, 182, 176), 7)
     cv2.line(img, ep, tp, (150, 148, 144), 5)
     cv2.circle(img, bp, 9, (210, 206, 200), -1)
     cv2.circle(img, ep, 6, (120, 118, 114), -1)
     tool_color = (120, 220, 90) if record.holding else (240, 240, 240)
     cv2.circle(img, tp, 7, tool_color, 2)
+    # the filled dot grows as the tool descends, so height is readable top-down
     z_frac = record.arm_joints[3] / max(cfg.arm.z_clear_m, 1e-6)
     cv2.circle(img, tp, max(2, int(9 * (1.0 - min(z_frac, 1.0)) + 2)), tool_color, -1)
 
+
+def _draw_cell_banner(img: np.ndarray, record: FrameRecord, size: int) -> None:
     banner = f"belt {record.belt_speed:.2f} m/s   arm {record.arm_state}"
     color = TEXT
     if record.estop:
@@ -135,7 +146,6 @@ def draw_cell(record: FrameRecord, cfg: CellConfig, size: int = 512) -> np.ndarr
         banner = "EMERGENCY STOP - BELT HALTED"
         color = (255, 255, 255)
     cv2.putText(img, banner, (12, size - 10), FONT_S, 0.46, color, 1, cv2.LINE_AA)
-    return img
 
 
 def record_items(record: FrameRecord) -> list[tuple[float, float, float, tuple[int, int, int]]]:

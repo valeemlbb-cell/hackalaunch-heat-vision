@@ -58,8 +58,13 @@ python scripts/record_demo.py --seconds 88 --out demo.mp4
 python scripts/record_demo.py --seconds 88 --out demo.mp4 --no-audio   # silent
 ```
 
-Produces a 1080p/25fps file under the 3-minute limit. Intermediates land in
-`demo_build/` (git-ignored).
+Produces a 1080p/25fps file under the 3-minute limit (title card, 88 s of live
+run, results card). Intermediates land in `demo_build/` (git-ignored).
+
+The voice-over is synthesised offline by the local Windows voice
+(`System.Speech`); no account, no key and no network are needed. On a machine
+without it the recorder falls back to `edge-tts`, and failing that it writes the
+video silently with the on-screen captions intact.
 
 ---
 

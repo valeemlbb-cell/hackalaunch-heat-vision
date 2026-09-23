@@ -7,5 +7,7 @@ opencv-python>=4.9
 pytest>=8.0
 pytest-cov>=5.0
 
-# Optional: narration for scripts/record_demo.py. ffmpeg must be on PATH.
+# Optional. The demo recorder needs ffmpeg on PATH. Narration uses the local
+# Windows voice (System.Speech) by default and needs no package at all;
+# edge-tts is only a fallback for machines without it.
 edge-tts>=6.1
