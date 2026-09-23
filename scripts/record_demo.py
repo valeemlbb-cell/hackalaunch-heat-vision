@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from heatvision.config import DEFAULT  # noqa: E402
-from heatvision.detect.infer import CHECKPOINT_NAME, Detector  # noqa: E402
+from heatvision.detect.infer import Detector, default_checkpoint  # noqa: E402
 from heatvision.pipeline import Station  # noqa: E402
 from heatvision.viz.cards import caption, metrics_card, title_card  # noqa: E402
 from heatvision.viz.narration import caption_at, check_overlaps, synthesise  # noqa: E402
@@ -105,7 +105,17 @@ def record_run(
         events.extend(record.events)
         attach_cell_items(record, station.scene)
         frame = compose_frame(
-            record, station.stats.summary(), DEFAULT, width=width, height=height, events=events
+            record,
+            station.stats.summary(),
+            DEFAULT,
+            width=width,
+            height=height,
+            events=events,
+            note=(
+                f"stress-test scenario: {args.hazard_rate * 100:.0f}% of items are lithium "
+                f"hazards, far above a real waste stream - nothing else is staged "
+                f"(docs/AUTONOMY.md)"
+            ),
         )
         writer_push(caption(frame, caption_at(INTRO_S + i / args.fps)), repeat)
         if (i + 1) % 250 == 0:
@@ -130,7 +140,7 @@ def add_narration(silent: Path, work: Path, out: Path) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Record the HeatVision demo video")
-    ap.add_argument("--checkpoint", type=Path, default=ROOT / "runs" / "fused" / CHECKPOINT_NAME)
+    ap.add_argument("--checkpoint", type=Path, default=default_checkpoint(ROOT))
     ap.add_argument("--seconds", type=float, default=88.0, help="belt seconds to record")
     ap.add_argument(
         "--fps",
@@ -178,6 +188,9 @@ def main() -> int:
                 "fuse a colour camera with a long-wave infrared camera",
                 "decide with an explicit, auditable safety policy",
                 "physically remove with a 4-DOF arm, and verify the grasp",
+                "SIMULATED CELL - no physical hardware, no real lithium cells",
+                f"this run is stress-weighted: {args.hazard_rate * 100:.0f}% hazards, "
+                f"far above a real stream",
             ),
         ),
         INTRO_S * VIDEO_FPS,

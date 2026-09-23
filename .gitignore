@@ -7,11 +7,18 @@ venv/
 .coverage
 htmlcov/
 
+# internal review notes, never part of the submission
+REVIEW_*.md
+
 # large or regenerable artefacts
 data/cache/
 runs/
-results/
 demo_build/
 *.mp4
 *.mp3
+*.wav
+
+# Training output stays out of git, but the shipped checkpoint under weights/
+# IS committed (5 MB) so a fresh clone can evaluate without a 20-minute retrain.
 *.pt
+!weights/*.pt

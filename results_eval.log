@@ -1,0 +1,44 @@
+rendering held-out test split (400 frames) ...
+  test: 100/400
+  test: 200/400
+  test: 300/400
+  test: 400/400
+scoring detections ...
+running end-to-end station trials ...
+
+### Detection (held-out test split)
+
+- frames: 400  |  operating threshold: 0.3
+- **mAP@0.5: 0.965**  |  mAP@[0.5:0.95]: 0.601
+- inference: 22.1 ms/frame (CPU)
+
+| class | AP@0.5 | precision | recall | GT |
+| --- | --- | --- | --- | --- |
+| cell | 0.926 | 0.944 | 0.949 | 624 |
+| pouch | 0.976 | 0.924 | 0.980 | 349 |
+| device | 0.994 | 0.990 | 0.995 | 582 |
+| **any lithium** | - | **0.956** | **0.973** | 1555 |
+
+### Adversarial subsets
+
+| subset | n | recall / false-alarm |
+| --- | --- | --- |
+| NEG:cell_lookalike | 485 | 0.027 |
+| NEG:hot_decoy | 282 | 0.099 |
+| NEG:ordinary | 1490 | 0.002 |
+| cold_battery | 189 | 0.915 |
+| ordinary | 1218 | 0.984 |
+| thermal_event | 148 | 0.953 |
+
+### End-to-end removal (closed loop, unseen scenes)
+
+- hazards presented: 51
+- **removed into a bin: 27 (52.9%)**
+- reached the crusher: 14
+- pick attempts: 37 (success 0.73)
+- false-positive picks: 0
+- emergency stops: 7  |  operator alerts: 0
+- mean pick cycle: 1.7984 s
+
+
+wrote D:\warung-ops\hacka\heat-vision\results\metrics.json and D:\warung-ops\hacka\heat-vision\results\METRICS.md

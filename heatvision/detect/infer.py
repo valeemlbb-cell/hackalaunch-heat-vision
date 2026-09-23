@@ -14,6 +14,20 @@ from .model import HeatNetS
 
 CHECKPOINT_NAME = "heatnet_s.pt"
 
+#: Where to look for a trained model, in order. ``weights/`` is the checkpoint
+#: committed with the repository so a fresh clone can evaluate immediately;
+#: ``runs/fused/`` is what ``scripts/train.py`` writes.
+SEARCH_PATHS = (Path("weights") / CHECKPOINT_NAME, Path("runs") / "fused" / CHECKPOINT_NAME)
+
+
+def default_checkpoint(root: Path) -> Path:
+    """First checkpoint that exists under ``root``, else the shipped path."""
+    for rel in SEARCH_PATHS:
+        candidate = root / rel
+        if candidate.exists():
+            return candidate
+    return root / SEARCH_PATHS[0]
+
 
 def save_checkpoint(path: Path, model: HeatNetS, meta: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)

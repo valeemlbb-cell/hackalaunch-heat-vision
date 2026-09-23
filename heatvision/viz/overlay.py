@@ -164,12 +164,12 @@ def attach_cell_items(record: FrameRecord, scene) -> None:  # noqa: ANN001 - sim
     record._cell_items = markers  # type: ignore[attr-defined]
 
 
-PANEL_Y = 80
+PANEL_Y = 94
 PANEL_SIZE = 512
-LOG_Y = 620
+LOG_Y = 630
 
 
-def _draw_header(canvas: np.ndarray, record: FrameRecord, width: int) -> None:
+def _draw_header(canvas: np.ndarray, record: FrameRecord, width: int, note: str = "") -> None:
     cv2.putText(canvas, "HeatVision", (24, 44), FONT, 1.0, TEXT, 1, cv2.LINE_AA)
     cv2.putText(
         canvas,
@@ -184,6 +184,10 @@ def _draw_header(canvas: np.ndarray, record: FrameRecord, width: int) -> None:
     cv2.putText(
         canvas, f"t = {record.time_s:6.2f} s", (width - 220, 44), FONT_S, 0.6, TEXT, 1, cv2.LINE_AA
     )
+    if note:
+        # Kept on screen for the whole run: a viewer must never have to take
+        # the README's word for how the scenario was weighted.
+        cv2.putText(canvas, note, (24, 66), FONT_S, 0.46, (70, 160, 250), 1, cv2.LINE_AA)
 
 
 def _draw_views(canvas: np.ndarray, record: FrameRecord, cfg: CellConfig) -> None:
@@ -270,11 +274,12 @@ def compose_frame(
     width: int = 1920,
     height: int = 1080,
     events: list[str] | None = None,
+    note: str = "",
 ) -> np.ndarray:
     """The full 1080p operator console for one control cycle."""
     canvas = np.empty((height, width, 3), np.uint8)
     canvas[:] = BG
-    _draw_header(canvas, record, width)
+    _draw_header(canvas, record, width, note)
     _draw_views(canvas, record, cfg)
     _draw_counters(canvas, record, stats, width)
     _draw_tables(canvas, record, events or [], width, height)

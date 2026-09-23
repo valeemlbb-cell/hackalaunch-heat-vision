@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from heatvision.config import DEFAULT  # noqa: E402
-from heatvision.detect.infer import CHECKPOINT_NAME, Detector  # noqa: E402
+from heatvision.detect.infer import CHECKPOINT_NAME, Detector, default_checkpoint  # noqa: E402
 from heatvision.evaluation.evaluate import (  # noqa: E402
     detection_report,
     format_markdown,
@@ -55,7 +55,7 @@ def run_ablations(n_test: int, out_dir: Path) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Evaluate HeatVision")
-    ap.add_argument("--checkpoint", type=Path, default=ROOT / "runs" / "fused" / CHECKPOINT_NAME)
+    ap.add_argument("--checkpoint", type=Path, default=default_checkpoint(ROOT))
     ap.add_argument("--test", type=int, default=400)
     ap.add_argument("--out", type=Path, default=ROOT / "results")
     ap.add_argument("--no-end-to-end", action="store_true")
