@@ -1,4 +1,4 @@
-__pycache__/
+﻿__pycache__/
 *.py[cod]
 .venv/
 venv/
@@ -13,7 +13,7 @@ REVIEW_*.md
 # large or regenerable artefacts
 data/cache/
 runs/
-demo_build/
+demo_build*/
 *.mp4
 *.mp3
 *.wav
@@ -22,3 +22,8 @@ demo_build/
 # IS committed (5 MB) so a fresh clone can evaluate without a 20-minute retrain.
 *.pt
 !weights/*.pt
+
+# scratch evaluator transcript; results/ holds the committed output
+results_eval.log
+
+demo_build*_record.log

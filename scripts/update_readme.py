@@ -40,8 +40,9 @@ def ablation_table(data: dict) -> str:
     if not data:
         return "_Not run yet._"
     rows = [
-        "| variant | mAP@0.5 | precision | recall | cold-battery recall | hot-decoy false alarm |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| variant | mAP@0.5 | precision | recall | cold-battery recall | "
+        "hot-decoy false alarm | lookalike false alarm |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
 
     def fmt(value) -> str:
@@ -54,7 +55,7 @@ def ablation_table(data: dict) -> str:
         rows.append(
             f"| {ABLATION_LABEL[key]} | {fmt(row['mAP@0.5'])} | {fmt(row['precision'])} | "
             f"{fmt(row['recall'])} | {fmt(row['cold_battery_recall'])} | "
-            f"{fmt(row['hot_decoy_false_alarm'])} |"
+            f"{fmt(row['hot_decoy_false_alarm'])} | {fmt(row['lookalike_false_alarm'])} |"
         )
     return "\n".join(rows)
 

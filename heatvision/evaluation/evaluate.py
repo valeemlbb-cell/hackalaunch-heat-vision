@@ -79,14 +79,16 @@ def end_to_end_report(
     detector: Detector,
     cfg: CellConfig = DEFAULT,
     *,
-    seeds: tuple[int, ...] = (901, 902, 903, 904, 905),
-    seconds: float = 24.0,
+    seeds: tuple[int, ...] = (901, 902, 903, 904, 905, 906),
+    seconds: float = 45.0,
     fps: float = 20.0,
+    hazard_rate: float | None = None,
 ) -> dict:
     """Run the whole cell on fresh scenes and count what actually happened."""
     runs = []
     for seed in seeds:
-        station = Station(detector, cfg, seed=seed, fps=fps)
+        kwargs = {} if hazard_rate is None else {"hazard_rate": hazard_rate}
+        station = Station(detector, cfg, seed=seed, fps=fps, **kwargs)
         station.run(seconds)
         runs.append(station.stats.summary())
 
@@ -120,6 +122,7 @@ def end_to_end_report(
         "seconds_per_run": seconds,
         "fps": fps,
         "runs": len(seeds),
+        "hazard_rate": hazard_rate,
         "totals": totals,
         "per_run": runs,
     }
@@ -154,9 +157,16 @@ def full_report(
         "detection": detection_report(detector, samples),
     }
     if end_to_end:
+        # Two scenarios. The stress mix loads the cell far past a real waste
+        # stream so the throughput limit is visible; the realistic mix shows
+        # what the same cell does when one arm is not the bottleneck. Both are
+        # reported, because quoting only the flattering one would be dishonest.
         if verbose:
-            print("running end-to-end station trials ...", flush=True)
-        report["end_to_end"] = end_to_end_report(detector, cfg)
+            print("running end-to-end station trials (stress mix) ...", flush=True)
+        report["end_to_end"] = end_to_end_report(detector, cfg, hazard_rate=0.28)
+        if verbose:
+            print("running end-to-end station trials (realistic mix) ...", flush=True)
+        report["end_to_end_realistic"] = end_to_end_report(detector, cfg, hazard_rate=0.06)
 
     if out_path is not None:
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)
@@ -184,26 +194,86 @@ def format_markdown(report: dict) -> str:
     )
 
     lines.append("### Adversarial subsets\n")
-    lines.append("| subset | n | recall / false-alarm |")
-    lines.append("| --- | --- | --- |")
-    for key, row in det["subsets"].items():
+    labels = {
+        "cold_battery": ("recall", "discharged cell at ambient - thermal is blind to it"),
+        "thermal_event": ("recall", "swollen pouch, venting"),
+        "ordinary": ("recall", "every other lithium item"),
+        "NEG:hot_decoy": ("false alarm", "hot brake disc / motor fragment, NOT a battery"),
+        "NEG:cell_lookalike": ("false alarm", "black plastic shard, shiny steel bolt"),
+        "NEG:ordinary": ("false alarm", "ordinary clutter"),
+    }
+    lines.append("| subset | n | metric | value | what it tests |")
+    lines.append("| --- | --- | --- | --- | --- |")
+    for key in (
+        "cold_battery",
+        "thermal_event",
+        "ordinary",
+        "NEG:hot_decoy",
+        "NEG:cell_lookalike",
+        "NEG:ordinary",
+    ):
+        row = det["subsets"].get(key)
+        if not row:
+            continue
         value = row.get("recall", row.get("false_alarm_rate"))
-        lines.append(f"| {key} | {row['n']} | {value:.3f} |")
+        kind, note = labels[key]
+        lines.append(
+            f"| `{key.replace('NEG:', '')}` | {row['n']} | {kind} | **{value:.3f}** | {note} |"
+        )
     lines.append("")
 
     if "end_to_end" in report:
-        e2e = report["end_to_end"]["totals"]
-        lines.append("### End-to-end removal (closed loop, unseen scenes)\n")
-        lines.append(f"- hazards presented: {e2e['hazards_presented']}")
-        lines.append(
-            f"- **removed into a bin: {e2e['hazards_removed']} "
-            f"({e2e['removal_rate'] * 100:.1f}%)**"
-        )
-        lines.append(f"- reached the crusher: {e2e['hazards_reached_crusher']}")
-        lines.append(f"- pick attempts: {e2e['pick_attempts']} (success {e2e['pick_success_rate']:.2f})")
-        lines.append(f"- false-positive picks: {e2e['false_positive_picks']}")
-        lines.append(
-            f"- emergency stops: {e2e['emergency_stops']}  |  operator alerts: {e2e['operator_alerts']}"
-        )
-        lines.append(f"- mean pick cycle: {e2e['mean_cycle_s']} s\n")
+        lines.extend(_end_to_end_markdown(report))
     return "\n".join(lines)
+
+
+def _e2e_row(label: str, e2e: dict) -> str:
+    missed = e2e["hazards_reached_crusher"]
+    presented = max(e2e["hazards_presented"], 1)
+    return (
+        f"| {label} | {e2e['hazards_presented']} | **{e2e['hazards_removed']} "
+        f"({e2e['removal_rate'] * 100:.0f}%)** | {e2e['hazards_operator_removed']} | "
+        f"**{e2e['containment_rate'] * 100:.0f}%** | **{missed} ({missed / presented * 100:.0f}%)** | "
+        f"{e2e['too_late_flags']} | {e2e['false_positive_picks']} | {e2e['emergency_stops']} |"
+    )
+
+
+def _end_to_end_markdown(report: dict) -> list[str]:
+    """Closed-loop results, both scenarios, including what it missed."""
+    stress = report["end_to_end"]
+    realistic = report.get("end_to_end_realistic")
+    runs = stress["runs"]
+    seconds = stress["seconds_per_run"]
+
+    lines = ["### End-to-end removal (closed loop, scenes the model never saw)\n"]
+    lines.append(
+        f"{runs} runs x {seconds:.0f} s of belt time per scenario, fresh seeds, full loop: "
+        f"detect -> decide -> intercept -> grip -> verify.\n"
+    )
+    lines.append(
+        "| scenario | hazards | robot removed | human removed | kept from crusher | "
+        "**missed** | `too_late` | false picks | e-stops |"
+    )
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    lines.append(_e2e_row(f"stress mix ({stress['hazard_rate'] * 100:.0f}% hazards)", stress["totals"]))
+    if realistic:
+        lines.append(
+            _e2e_row(
+                f"realistic mix ({realistic['hazard_rate'] * 100:.0f}% hazards)",
+                realistic["totals"],
+            )
+        )
+    lines.append("")
+    totals = stress["totals"]
+    lines.append(
+        f"Mean pick cycle {totals['mean_cycle_s']} s, pick success "
+        f"{totals['pick_success_rate']:.2f}."
+    )
+    lines.append(
+        "Under the stress mix almost every miss is a `too_late` flag: the item was seen "
+        "and classified correctly, but the single arm was still finishing an earlier "
+        "pick. That is a throughput limit, not a perception one, and a second arm or a "
+        "downstream diverter fixes it. The realistic-mix row is the same code with the "
+        "hazard share a real waste stream would present.\n"
+    )
+    return lines
