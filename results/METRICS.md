@@ -2,7 +2,7 @@
 
 - frames: 400  |  operating threshold: 0.3
 - **mAP@0.5: 0.965**  |  mAP@[0.5:0.95]: 0.601
-- inference: 22.1 ms/frame (CPU)
+- inference: 17.6 ms/frame (CPU)
 
 | class | AP@0.5 | precision | recall | GT |
 | --- | --- | --- | --- | --- |

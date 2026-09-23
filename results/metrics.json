@@ -1,5 +1,5 @@
 {
-  "checkpoint": "D:\\warung-ops\\hacka\\heat-vision\\weights\\heatnet_s.pt",
+  "checkpoint": "runs\\fused\\heatnet_s.pt",
   "checkpoint_meta": {
     "epoch": 13,
     "val_loss": 0.18266715049743654,
@@ -505,7 +505,7 @@
       }
     },
     "n_images": 400,
-    "inference_ms_per_frame": 22.12
+    "inference_ms_per_frame": 17.56
   },
   "end_to_end": {
     "seconds_per_run": 24.0,
@@ -525,7 +525,7 @@
       "containment_rate": 0.6078,
       "pick_success_rate": 0.7333,
       "mean_cycle_s": 1.7984,
-      "mean_detect_ms": 46.244
+      "mean_detect_ms": 58.428
     },
     "per_run": [
       {
@@ -543,7 +543,7 @@
         "operator_alerts": 0,
         "too_late_flags": 3,
         "mean_cycle_s": 1.7,
-        "mean_detect_ms": 34.7
+        "mean_detect_ms": 69.52
       },
       {
         "frames": 480,
@@ -560,7 +560,7 @@
         "operator_alerts": 0,
         "too_late_flags": 3,
         "mean_cycle_s": 1.775,
-        "mean_detect_ms": 50.73
+        "mean_detect_ms": 35.97
       },
       {
         "frames": 480,
@@ -577,7 +577,7 @@
         "operator_alerts": 0,
         "too_late_flags": 5,
         "mean_cycle_s": 1.879,
-        "mean_detect_ms": 60.58
+        "mean_detect_ms": 39.92
       },
       {
         "frames": 480,
@@ -594,7 +594,7 @@
         "operator_alerts": 0,
         "too_late_flags": 2,
         "mean_cycle_s": 1.838,
-        "mean_detect_ms": 41.2
+        "mean_detect_ms": 85.52
       },
       {
         "frames": 480,
@@ -611,7 +611,7 @@
         "operator_alerts": 0,
         "too_late_flags": 8,
         "mean_cycle_s": 1.8,
-        "mean_detect_ms": 44.01
+        "mean_detect_ms": 61.21
       }
     ]
   }
