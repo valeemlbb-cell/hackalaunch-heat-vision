@@ -8,7 +8,13 @@ import pytest
 from heatvision.config import DEFAULT
 from heatvision.viz.cards import caption, metrics_card, title_card
 from heatvision.viz.narration import SCRIPT, Line, caption_at, check_overlaps
-from heatvision.viz.overlay import annotate_view, attach_cell_items, compose_frame, draw_cell
+from heatvision.viz.overlay import (
+    _elide,
+    annotate_view,
+    attach_cell_items,
+    compose_frame,
+    draw_cell,
+)
 from tests.test_pipeline import make_station
 
 
@@ -82,6 +88,35 @@ class TestConsole:
         record, station = recorded
         frame = compose_frame(record, station.stats.summary(), DEFAULT)
         assert np.array_equal(caption(frame.copy(), ""), frame)
+
+
+class TestElide:
+    """Event-log lines are trimmed to fit the panel, never mid-word."""
+
+    def test_short_text_is_untouched(self):
+        assert _elide("PICK track 7", 62) == "PICK track 7"
+
+    def test_exactly_at_the_limit_is_untouched(self):
+        text = "x" * 62
+        assert _elide(text, 62) == text
+
+    def test_long_text_fits_the_limit_and_is_marked(self):
+        text = "TOO LATE track 34: x=1.03 m past the 1.02 m pick window -> flagged"
+        out = _elide(text, 62)
+        assert len(out) <= 62
+        assert out.endswith("...")
+
+    def test_it_does_not_cut_a_word_in_half(self):
+        text = "TOO LATE track 34: x=1.03 m past the 1.02 m pick window -> flagged"
+        out = _elide(text, 62)
+        assert text.startswith(out[:-3])
+        # the last kept word is whole: the next character in the source is a space
+        assert text[len(out) - 3] == " "
+
+    def test_a_single_unbroken_token_is_still_cut_to_fit(self):
+        out = _elide("y" * 200, 20)
+        assert len(out) == 20
+        assert out.endswith("...")
 
 
 class TestCards:

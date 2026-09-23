@@ -236,6 +236,17 @@ def _draw_counters(canvas: np.ndarray, record: FrameRecord, stats: dict, width: 
     )
 
 
+def _elide(text: str, limit: int) -> str:
+    """Trim to ``limit`` columns on a word boundary, so nothing ends mid-word."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 3]
+    space = cut.rfind(" ")
+    if space > limit // 2:
+        cut = cut[:space]
+    return cut.rstrip(" ,:;-") + "..."
+
+
 def _draw_tables(
     canvas: np.ndarray, record: FrameRecord, events: list[str], width: int, height: int
 ) -> None:
@@ -252,7 +263,7 @@ def _draw_tables(
         line = (
             f"{decision.track_id:>4}  {decision.cls_name:<7} {decision.vision_score:>5.2f} "
             f"{decision.peak_dt:>+6.1f}K {decision.rise_rate_k_s:>+6.1f}  "
-            f"{decision.rule:<5} {decision.action.value:<20} {decision.reason[:58]}"
+            f"{decision.rule:<5} {decision.action.value:<20} {_elide(decision.reason, 58)}"
         )
         cv2.putText(
             canvas, line, (40, yy), FONT_S, 0.42, ACTION_COLOR.get(decision.action, TEXT), 1, cv2.LINE_AA
@@ -262,7 +273,7 @@ def _draw_tables(
     _panel(canvas, 1128, LOG_Y, width - 1128 - 24, log_h, "EVENT LOG")
     yy = LOG_Y + 34
     for line in events[-11:]:
-        cv2.putText(canvas, line[:62], (1144, yy), FONT_S, 0.42, TEXT, 1, cv2.LINE_AA)
+        cv2.putText(canvas, _elide(line, 62), (1144, yy), FONT_S, 0.42, TEXT, 1, cv2.LINE_AA)
         yy += 24
 
 

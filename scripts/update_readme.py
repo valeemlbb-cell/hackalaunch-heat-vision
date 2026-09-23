@@ -59,15 +59,20 @@ def ablation_table(data: dict) -> str:
     return "\n".join(rows)
 
 
+#: pytest.ini already carries ``-q``; a second one suppresses the count line.
+_SUMMARY = re.compile(r"^[=\s]*\d+ (passed|failed)")
+
+
 def test_summary() -> str:
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--no-header"],
+        [sys.executable, "-m", "pytest", "--no-header", "-p", "no:cacheprovider"],
         cwd=ROOT,
         capture_output=True,
         text=True,
     )
-    tail = [line for line in proc.stdout.strip().splitlines() if line.strip()]
-    last = tail[-1] if tail else "no output"
+    lines = [line.strip() for line in proc.stdout.strip().splitlines() if line.strip()]
+    summary = next((line for line in reversed(lines) if _SUMMARY.match(line)), None)
+    last = summary or (lines[-1] if lines else "no output")
     status = "all passing" if proc.returncode == 0 else "FAILURES"
     return f"```\n$ python -m pytest -q\n{last}\n```\n\n{status}."
 

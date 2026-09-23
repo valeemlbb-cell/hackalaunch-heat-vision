@@ -68,11 +68,21 @@ def mux(video: Path, clips: list[tuple[float, Path]], out: Path) -> None:
         ms = int(start * 1000)
         parts.append(f"[{i}:a]aresample=44100,adelay={ms}|{ms}[a{i}]")
     mixed = "".join(f"[a{i}]" for i in range(1, len(clips) + 1))
-    parts.append(f"{mixed}amix=inputs={len(clips)}:normalize=0:dropout_transition=0[aout]")
+    # The narration ends well before the results card does, so the mix is
+    # shorter than the video. Both obvious fixes are traps: bare -shortest cuts
+    # the video off at the end of the audio and eats the results card, and a
+    # bare apad never ends, so ffmpeg writes silence until the disk fills.
+    # Pad to exactly the video duration and cap the output with -t.
+    parts.append(f"{mixed}amix=inputs={len(clips)}:normalize=0:dropout_transition=0[amixed]")
+    video_s = probe_duration(video)
+    if video_s is None:
+        raise SystemExit(f"cannot read the duration of {video}; is ffprobe on PATH?")
+    parts.append(f"[amixed]apad=whole_dur={video_s:.3f}[aout]")
     cmd += [
         "-filter_complex", ";".join(parts),
         "-map", "0:v", "-map", "[aout]",
-        "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", str(out),
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+        "-t", f"{video_s:.3f}", str(out),
     ]
     subprocess.run(cmd, check=True)
 
@@ -87,6 +97,22 @@ def probe_duration(path: Path) -> float | None:
     )
     try:
         return float(proc.stdout.strip())
+    except ValueError:
+        return None
+
+
+def probe_frames(path: Path) -> int | None:
+    """Count actually decodable video frames, not what the container claims."""
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
+        return None
+    proc = subprocess.run(
+        [ffprobe, "-v", "error", "-count_frames", "-select_streams", "v:0",
+         "-show_entries", "stream=nb_read_frames", "-of", "default=nw=1:nk=1", str(path)],
+        capture_output=True, text=True,
+    )
+    try:
+        return int(proc.stdout.strip())
     except ValueError:
         return None
 
@@ -157,6 +183,14 @@ def main() -> int:
     )
     ap.add_argument("--metrics", type=Path, default=ROOT / "results" / "metrics.json")
     ap.add_argument("--out", type=Path, default=ROOT / "demo.mp4")
+    ap.add_argument(
+        "--work",
+        type=Path,
+        default=ROOT / "demo_build",
+        help="scratch directory for the silent cut and the narration clips; give "
+        "two concurrent recordings two different directories, or they overwrite "
+        "each other's frames and both videos come out corrupt",
+    )
     ap.add_argument("--no-audio", action="store_true")
     args = ap.parse_args()
 
@@ -168,7 +202,7 @@ def main() -> int:
     station = Station(detector, DEFAULT, seed=args.seed, fps=args.fps, hazard_rate=args.hazard_rate)
 
     width, height = 1920, 1080
-    work = ROOT / "demo_build"
+    work = args.work
     work.mkdir(parents=True, exist_ok=True)
     silent = work / "console_silent.mp4"
     writer = open_writer(silent, width, height, VIDEO_FPS)
@@ -217,6 +251,25 @@ def main() -> int:
     size_mb = args.out.stat().st_size / 1e6
     shown = f"{duration:.1f}" if duration else "?"
     print(f"\nwrote {args.out}  ({shown}s, {size_mb:.1f} MB)")
+
+    # Integrity gate. A container can report a full duration while most of its
+    # frames are unreadable -- that is what happens when two recordings share a
+    # work directory and interleave writes into the same silent cut. Count the
+    # frames that actually decode and refuse to call such a file finished.
+    expected = int(round((INTRO_S + args.seconds + OUTRO_S) * VIDEO_FPS))
+    frames = probe_frames(args.out)
+    if frames is not None:
+        print(f"decodable frames: {frames}/{expected}")
+        if frames < expected * 0.98:
+            print(
+                f"ERROR: only {frames} of {expected} frames decode -- the video is "
+                f"damaged, do NOT submit it. The usual cause is a second recorder "
+                f"writing the same --work directory; re-run alone, or pass a "
+                f"separate --work path.",
+                file=sys.stderr,
+            )
+            return 1
+
     if duration and duration > 180:
         print("WARNING: video exceeds the 3 minute limit", file=sys.stderr)
         return 1
