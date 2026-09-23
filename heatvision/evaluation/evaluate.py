@@ -104,8 +104,14 @@ def end_to_end_report(
         "operator_alerts": int(sum(r["operator_alerts"] for r in runs)),
         "too_late_flags": int(sum(r["too_late_flags"] for r in runs)),
     }
+    totals["hazards_operator_removed"] = int(sum(r["hazards_operator_removed"] for r in runs))
     totals["removal_rate"] = round(
         totals["hazards_removed"] / max(totals["hazards_presented"], 1), 4
+    )
+    totals["containment_rate"] = round(
+        (totals["hazards_removed"] + totals["hazards_operator_removed"])
+        / max(totals["hazards_presented"], 1),
+        4,
     )
     totals["pick_success_rate"] = agg("pick_success_rate")
     totals["mean_cycle_s"] = agg("mean_cycle_s")
