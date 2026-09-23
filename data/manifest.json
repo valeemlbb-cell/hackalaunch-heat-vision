@@ -1,0 +1,37 @@
+{
+  "generator": "heatvision.sim",
+  "version": 1,
+  "note": "Fully synthetic. Seeds are the dataset: render_sample(seed) is deterministic, so these three seed ranges define disjoint splits.",
+  "belt": {
+    "image_px": 256,
+    "view_len_m": 1.2,
+    "width_m": 0.9
+  },
+  "detector_input_px": 128,
+  "splits": {
+    "train": {
+      "count": 3000,
+      "seed_base": 1000000,
+      "seeds": [
+        1000000,
+        1002999
+      ]
+    },
+    "val": {
+      "count": 400,
+      "seed_base": 5000000,
+      "seeds": [
+        5000000,
+        5000399
+      ]
+    },
+    "test": {
+      "count": 400,
+      "seed_base": 9000000,
+      "seeds": [
+        9000000,
+        9000399
+      ]
+    }
+  }
+}
